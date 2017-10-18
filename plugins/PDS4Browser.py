@@ -71,16 +71,40 @@ class PDS4LabelHandler(object):
             # return the first table or array
             for i in range(len(struct)):
                 if struct[i].is_array():
-                    numhdu = i
                     break
             else:
                 raise InvalidPDS4Data('No image found in {}'.format(filespec))
+        else:
+            i = numhdu
 
         im = np.array(struct[i].data)
+
+        # Ginga draws from bottom to top, left to right.  Transform
+        # our data so that when it is drawn this way it is displayed
+        # in the correct orientation
+        disp_dir = struct[i].meta_data.display_settings['Display_Direction']
+        haxis = struct[i].meta_data.get_axis_array(
+            disp_dir['horizontal_display_axis']
+        )
+        
+        # PDS4 data is Last Index Fastest and axis numbering starts at
+        # 1.  Numpy arrays are also Last Index Fastest, but start at
+        # 0.
+        if haxis['sequence_number'] == 1:
+            # Swap axes so that the horizontal axis is numpy axis 1:
+            im = im.T
+
+        hdisp_dir = disp_dir['horizontal_display_direction']
+        vdisp_dir = disp_dir['vertical_display_direction']
+        if 'Right to Left' in hdisp_dir:
+            im = im[:, ::-1]  # invert horizontal axis
+        if 'Top to Bottom' in vdisp_dir:
+            im = im[::-1]     # invert vertical axis
+        
         if dstobj is not None:
             dstobj.set_data(im)
         
-        return im, numhdu, None
+        return im, i, None
 
 class PDS4Browser(GingaPlugin.LocalPlugin):
 
@@ -189,30 +213,12 @@ class PDS4Browser(GingaPlugin.LocalPlugin):
         from pds4_tools import pds4_read
 
         for path in paths:
-#            try:
-#                struct = pds4_read(path)
-#            except:
-#                self.logger.error('{} is invalid.'.format(path))
-#                continue
-#            
-#            for i in range(len(struct)):
-#                if struct[i].is_array():
-#                    if struct[i].data.ndim == 2:
-#                        j = i
-#                        break
-#            else:
-#                self.logger.error('{} has no 2D arrays'.format(path))
-#                continue
-            
             if self.fitsimage is not None:
-                #self.fv.gui_do(self.fitsimage.make_callback, 'drag-drop', paths)
                 destobj = self.fitsimage
             else:
                 channel = self.fv.get_channel_info()
                 if channel is None:
                     return
-                
-                #self.fv.gui_do(self.fv.dragdrop, channel.fitsimage, paths)
                 destobj = channel.fitsimage
 
             image = AstroImage(logger=self.logger, ioclass=PDS4LabelHandler)
